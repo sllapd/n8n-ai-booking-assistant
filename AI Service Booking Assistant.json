@@ -1,0 +1,261 @@
+{
+  "name": "AI Service Booking Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "5218ab79-be23-4a9e-bbd0-b5d87585ea36",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -544,
+        -64
+      ],
+      "webhookId": "b4e43d90-1d26-4627-a3f6-d585e3791df9",
+      "credentials": {
+        "telegramApi": {
+          "id": "jq13hrCXAtCxXjk3",
+          "name": "booking assistant"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "Ти — ввічливий ШІ-адміністратор сервісного центру MacService.\nПрайс-лист:\n- Чистка MacBook та заміна термопасти: 1200 грн (1 година)\n- Заміна акумулятора MacBook: від 3500 грн\n- Діагностика: безкоштовно\n\nТвоє завдання: коротко відповідати на запитання клієнта українською мовою. Якщо клієнт хоче записатися на ремонт, попроси його написати Ім'я та номер телефону.\n\nВАЖЛИВО: Коли клієнт написав своє ім'я та номер телефону, обов'язково додай у самому кінці своєї відповіді рядок у форматі:\n[LEAD: Ім'я | Телефон | Послуга]"
+        }
+      },
+      "id": "0efada20-21ed-46c8-9864-601d4e7b337f",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        -304,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {}
+      },
+      "id": "04a495c6-b0b7-48bd-b498-18bcc774653d",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        176
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "ScGbyMa4L5M7QiAP",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').item.json.message.chat.id }}"
+      },
+      "id": "a8d44c26-7bbc-4f0e-ba43-9c55ae1b6370",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [
+        -192,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $input.first().json.output || '';\nconst chatId = $('Telegram Trigger').first().json.message.chat.id;\nconst username = $('Telegram Trigger').first().json.message.from.username || 'без нікнейму';\n\nconst leadMatch = aiOutput.match(/\\[LEAD:\\s*(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*?)\\]/);\nconst cleanReply = aiOutput.replace(/\\[LEAD:.*?\\]/g, '').trim();\n\nreturn [{\n  json: {\n    chatId,\n    replyText: cleanReply,\n    hasLead: Boolean(leadMatch),\n    clientName: leadMatch ? leadMatch[1] : '',\n    clientPhone: leadMatch ? leadMatch[2] : '',\n    service: leadMatch ? leadMatch[3] : '',\n    username: '@' + username,\n    date: new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })\n  }\n}];\n"
+      },
+      "id": "643c6ce7-05b0-4c50-be87-cd9fc5f6fb70",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.replyText }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "4d797de3-6b95-4271-abaa-92990e94212f",
+      "name": "Reply to User",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        288,
+        -176
+      ],
+      "webhookId": "73c8f724-2874-4d0a-9bab-adbafde0ea62",
+      "credentials": {
+        "telegramApi": {
+          "id": "jq13hrCXAtCxXjk3",
+          "name": "booking assistant"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.hasLead }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "03fe0386-2dfe-4baf-bc3e-220ae675aa60",
+      "name": "If Lead Captured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        288,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=🔥 НОВА ЗАЯВКА З БОТА!\n\n👤 Клієнт: {{ $json.clientName }} ({{ $json.username }})\n📞 Телефон: {{ $json.clientPhone }}\n🛠 Послуга: {{ $json.service }}\n🕒 Час: {{ $json.date }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "be52c0d9-7176-463a-9c73-8b5af1fc48e0",
+      "name": "Notify Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        16
+      ],
+      "webhookId": "3cd6533d-9a90-4717-88ed-2f63f511bca3",
+      "credentials": {
+        "telegramApi": {
+          "id": "jq13hrCXAtCxXjk3",
+          "name": "booking assistant"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Reply to User",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Lead Captured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Lead Captured": {
+      "main": [
+        [
+          {
+            "node": "Notify Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a2b6ad10-2289-4e7a-bf9a-d63322c8032e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3fd96a560847ee92853947a3f5dc525407615838152e89dbb5c9f30ce3e08128"
+  },
+  "nodeGroups": [],
+  "id": "v6CFoiHEdm18lOy5",
+  "tags": []
+}
